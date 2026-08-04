@@ -434,13 +434,27 @@ function routeAgentReply(text) {
 
 /* ════════════════════════════════════════════════════════════════════
    WXO WEBCHAT
+   WXO always renders as a floating bubble — rootElementID is ignored.
+   We intercept agent replies via THREE methods in parallel:
+   1. postMessage listener (all variants)
+   2. MutationObserver on document.body watching for WXO message nodes
+   3. Polling the WXO bubble's shadow DOM / inner text every 500ms
    ════════════════════════════════════════════════════════════════════ */
+let _lastSeenMsg = '';   // debounce: don't re-route same message twice
+
+function handleCapturedText(txt) {
+  if (!txt || txt.length < 10) return;
+  if (txt === _lastSeenMsg) return;
+  _lastSeenMsg = txt;
+  console.log('🎯 Agent reply captured:', txt.substring(0, 80));
+  routeAgentReply(txt);
+}
+
 function initWXO() {
   window.wxOConfiguration = {
     orchestrationID: 'e3e27e19f79b419287ec1972448924d0_37478da1-a7f1-42d1-bf84-52d550b15074',
     hostURL:         'https://eu-de.watson-orchestrate.cloud.ibm.com',
-    rootElementID:   'wxo-mount',
-    showLauncher:    false,
+    showLauncher:    true,   // WXO ignores rootElementID — let it be floating
     crn: 'crn:v1:bluemix:public:watsonx-orchestrate:eu-de:a/e3e27e19f79b419287ec1972448924d0:37478da1-a7f1-42d1-bf84-52d550b15074::',
     deploymentPlatform: 'ibmcloud',
     chatOptions: { agentId: '611bd166-5f76-402c-9e45-39267564728b' }
@@ -448,22 +462,105 @@ function initWXO() {
 
   const s = document.createElement('script');
   s.src = 'https://eu-de.watson-orchestrate.cloud.ibm.com/wxochat/wxoLoader.js?embed=true';
-  s.onload = () => { if (typeof wxoLoader !== 'undefined') wxoLoader.init(); };
+  s.onload = () => {
+    if (typeof wxoLoader !== 'undefined') {
+      wxoLoader.init();
+      console.log('✅ WXO loaded — starting DOM observer');
+      // Start observing after WXO has had time to render its DOM
+      setTimeout(startWXOObserver, 2000);
+    }
+  };
   s.onerror = () => console.warn('WXO loader unavailable');
   document.head.appendChild(s);
 
-  // Listen for agent messages → route to Cognos viz
+  /* ── Method 1: postMessage (catches WXO iframe events) ── */
   window.addEventListener('message', evt => {
     try {
-      const d = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
-      if (!d) return;
-      if (['agentMessage','chat_message','wxo_message','message','agent_response','response']
-           .includes(d.type)) {
-        const txt = d.text || d.message || d.content || d.body || d.response || '';
-        if (txt) routeAgentReply(txt);
+      // Log ALL messages in debug mode so we can see what WXO sends
+      if (evt.data && typeof evt.data === 'string' && evt.data.includes('dashboard_hint')) {
+        handleCapturedText(evt.data);
+        return;
       }
+      const d = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
+      if (!d || typeof d !== 'object') return;
+      // Try every known WXO message shape
+      const txt = d.text || d.message || d.content || d.body || d.response ||
+                  d.payload?.text || d.payload?.message || d.detail?.text ||
+                  (d.data && typeof d.data === 'string' ? d.data : '') || '';
+      if (txt && txt.length > 10) handleCapturedText(txt);
     } catch(_) {}
+  }, true);  // useCapture=true catches bubbled events from iframes too
+}
+
+/* ── Method 2: MutationObserver on body — watch for WXO message nodes ── */
+function startWXOObserver() {
+  // WXO renders its chat into a div in <body>. We watch for new text nodes
+  // that appear in WXO's container after the agent responds.
+  const observer = new MutationObserver(mutations => {
+    for (const mut of mutations) {
+      for (const node of mut.addedNodes) {
+        if (node.nodeType !== 1) continue;  // elements only
+        // Look for WXO message containers — they have role="article" or
+        // class names containing "message", "response", "agent", "chat"
+        const el = node;
+        const cls = (el.className || '').toLowerCase();
+        const role = el.getAttribute?.('role') || '';
+
+        if (/message|response|agent|chat-item|bubble|output/.test(cls) ||
+            role === 'article' || role === 'listitem') {
+          const txt = el.innerText || el.textContent || '';
+          if (txt.trim().length > 15) {
+            handleCapturedText(txt.trim());
+          }
+        }
+        // Also check all descendants
+        const candidates = el.querySelectorAll?.(
+          '[class*="message"],[class*="response"],[class*="agent"],[class*="bubble"],' +
+          '[role="article"],[role="listitem"],[data-testid*="message"]'
+        ) || [];
+        for (const c of candidates) {
+          const txt = c.innerText || c.textContent || '';
+          if (txt.trim().length > 15) handleCapturedText(txt.trim());
+        }
+      }
+    }
   });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree:   true,
+  });
+  console.log('👁️ WXO DOM observer active');
+
+  // ── Method 3: Polling — scan WXO's visible text every 1.5s ──
+  let pollCount = 0;
+  const poll = setInterval(() => {
+    pollCount++;
+    // Stop polling after 30 min to save memory
+    if (pollCount > 1200) { clearInterval(poll); return; }
+
+    // Find the WXO container — it's usually a fixed-position div in body
+    // with high z-index containing the chat bubble
+    const wxoRoots = document.querySelectorAll(
+      'body > div[class*="wxo"], body > div[class*="WXO"], ' +
+      'body > div[class*="chat"], body > div[class*="Chat"], ' +
+      'body > div[style*="position: fixed"], body > div[style*="position:fixed"]'
+    );
+
+    for (const root of wxoRoots) {
+      // Look for the most recent agent message node
+      const msgs = root.querySelectorAll(
+        '[class*="message"],[class*="Message"],[class*="response"],[class*="Response"],' +
+        '[class*="agent"],[class*="Agent"],[role="article"],[data-testid*="message"]'
+      );
+      if (!msgs.length) continue;
+      // Take the last one (most recent)
+      const last = msgs[msgs.length - 1];
+      const txt  = (last?.innerText || last?.textContent || '').trim();
+      if (txt.length > 15) handleCapturedText(txt);
+    }
+  }, 1500);
+  console.log('🔄 WXO polling active (every 1.5s)');
 }
 
 /* ════════════════════════════════════════════════════════════════════
