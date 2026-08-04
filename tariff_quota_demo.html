@@ -4,12 +4,16 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Мониторинг на тарифни квоти — Митническа Агенция България</title>
+
+  <!-- ── Cognos Dashboard Embed API ─────────────────────────────────── -->
+  <script src="http://useast.services.cloud.techzone.ibm.com:23661/bi/dashboard/js/api/CognosDashboardApi.js"></script>
+
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     html,body{height:100%;font-family:'IBM Plex Sans','Segoe UI',Arial,sans-serif;
-              background:#F4F6F9;color:#21272A;overflow:hidden}
+              background:#F0F4FA;color:#21272A;overflow:hidden}
 
-    /* ── Header ────────────────────────────────────────────────────── */
+    /* ── Header ─────────────────────────────────────────────────────── */
     #hdr{height:52px;background:linear-gradient(90deg,#001F4D 0%,#003087 55%,#005B99 100%);
          display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;
          box-shadow:0 2px 10px rgba(0,0,0,.45);z-index:300}
@@ -23,164 +27,416 @@
     .hkpi-v{font-size:15px;font-weight:700;line-height:1}
     .hkpi-l{font-size:8.5px;color:#8BB8DC;margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
     .live-dot{width:8px;height:8px;background:#00E5A0;border-radius:50%;
-              animation:pulse 2s infinite;margin-right:5px;display:inline-block;vertical-align:middle}
+              animation:pulse 2s infinite;display:inline-block;vertical-align:middle;margin-right:4px}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 
-    /* ── Layout ─────────────────────────────────────────────────────── */
+    /* ── Layout ──────────────────────────────────────────────────────── */
     #app{display:flex;height:calc(100vh - 52px);overflow:hidden}
 
-    /* ── LEFT: WXO Chat Panel ───────────────────────────────────────── */
+    /* ── LEFT: WXO Chat Panel ────────────────────────────────────────── */
     #cpanel{width:390px;min-width:300px;max-width:540px;background:#fff;
             display:flex;flex-direction:column;border-right:2px solid #D8E8F8;flex-shrink:0}
     #cph{background:#003087;color:#fff;padding:9px 13px;font-size:11.5px;font-weight:600;
          display:flex;align-items:center;gap:7px;flex-shrink:0}
-
-    /* Hint strip — appears when agent triggers a tab switch */
-    #hbadge{display:none;align-items:center;gap:7px;padding:5px 12px;
-            background:#E4EFFE;border-bottom:1px solid #B8D0F8;
-            font-size:11px;color:#003087;font-weight:500;flex-shrink:0}
-    #hbadge.on{display:flex}
-    #hclose{cursor:pointer;color:#555;margin-left:auto;padding:1px 5px;
-            border-radius:3px;font-size:12px;line-height:1}
-    #hclose:hover{background:#B8D0F8}
-
-    /* WXO mounts here — fills remaining height */
     #wxo-mount{flex:1;overflow:hidden;position:relative;min-height:0;background:#F8FAFF}
+    /* Force WXO to fill panel */
+    #wxo-mount > *{position:absolute!important;inset:0!important;width:100%!important;
+                   height:100%!important;max-width:none!important;max-height:none!important;
+                   border-radius:0!important;box-shadow:none!important;margin:0!important}
 
-    /* ── Resizer ────────────────────────────────────────────────────── */
+    /* ── Resizer ─────────────────────────────────────────────────────── */
     #rz{width:5px;background:#DCE8F5;cursor:col-resize;flex-shrink:0;transition:background .15s}
     #rz:hover,#rz.d{background:#003087}
 
-    /* ── RIGHT: Dashboard panel ─────────────────────────────────────── */
-    #dpanel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+    /* ── RIGHT: Cognos Viz Panel ─────────────────────────────────────── */
+    #dpanel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;background:#F0F4FA}
 
-    /* Tab bar */
-    #tabs{display:flex;background:#001A50;flex-shrink:0;border-bottom:2px solid #00367A}
-    .tab{padding:0 17px;height:42px;display:flex;align-items:center;gap:6px;
-         color:#7BA8D4;font-size:11.5px;cursor:pointer;white-space:nowrap;
-         border-bottom:3px solid transparent;transition:all .12s;user-select:none}
-    .tab:hover{color:#fff;background:rgba(255,255,255,.07)}
-    .tab.on{color:#fff;border-bottom-color:#00C8FF;font-weight:600}
-    .tab.ai-hint{background:rgba(0,200,255,.12)!important;border-bottom-color:#00C8FF!important;
-                 color:#fff!important}
+    /* Context strip — shows what the AI is displaying */
+    #ctx-strip{padding:6px 16px;background:#003087;color:#fff;
+               font-size:11px;display:flex;align-items:center;gap:8px;flex-shrink:0;
+               min-height:34px}
+    #ctx-icon{font-size:16px;flex-shrink:0}
+    #ctx-lbl{font-weight:600;flex:1}
+    #ctx-sub{font-size:9.5px;color:#8BB8DC;font-weight:400}
+    #ctx-ai{background:rgba(255,255,255,.2);padding:1px 8px;border-radius:8px;
+            font-size:9px;letter-spacing:.3px;display:none}
+    #ctx-ai.on{display:inline-block}
 
-    /* Status strip */
-    #strip{padding:4px 14px;background:#E4EFFE;border-bottom:1px solid #B8D0F8;
-           font-size:10px;color:#003087;display:flex;align-items:center;gap:8px;flex-shrink:0}
-    #strip strong{font-weight:700}
-    #ai-badge{display:none;background:#003087;color:#fff;padding:1px 9px;
-              border-radius:7px;font-size:9px;margin-left:auto;letter-spacing:.3px}
-    #ai-badge.on{display:inline-block}
+    /* Welcome / default state */
+    #welcome{flex:1;display:flex;flex-direction:column;align-items:center;
+             justify-content:center;gap:16px;padding:32px;text-align:center}
+    #welcome-icon{font-size:56px;opacity:.35}
+    #welcome-title{font-size:16px;font-weight:700;color:#335;opacity:.6}
+    #welcome-sub{font-size:12px;color:#778;max-width:340px;line-height:1.7;opacity:.8}
+    .hint-chips{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;max-width:400px}
+    .hchip{background:#fff;border:1.5px solid #C0D8FF;border-radius:12px;padding:5px 12px;
+           font-size:10.5px;color:#003087;font-weight:500;cursor:pointer;
+           transition:all .15s;user-select:none}
+    .hchip:hover{background:#E4EFFE;transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,48,135,.15)}
 
-    /* Loading overlay */
-    #fwrap{flex:1;position:relative;overflow:hidden;background:#eef2f8}
-    #cogframe{width:100%;height:100%;border:none;display:block}
-    #spin{position:absolute;inset:0;background:rgba(238,242,248,.85);
-          display:flex;align-items:center;justify-content:center;
-          flex-direction:column;gap:10px;z-index:10;transition:opacity .3s}
-    #spin.hidden{opacity:0;pointer-events:none}
-    .sp{width:36px;height:36px;border:3px solid #B8D0F8;border-top-color:#003087;
-        border-radius:50%;animation:spin .7s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    #spin-msg{font-size:11px;color:#446;letter-spacing:.3px}
+    /* ── Widget container ────────────────────────────────────────────── */
+    #viz-area{flex:1;display:none;flex-direction:column;overflow:hidden;padding:12px;gap:10px}
+    #viz-area.on{display:flex}
 
-    /* ── WXO sizing overrides ───────────────────────────────────────── */
-    #wxo-mount > *{position:absolute!important;inset:0!important;
-                   width:100%!important;height:100%!important;
-                   max-width:none!important;max-height:none!important;
-                   border-radius:0!important;box-shadow:none!important;
-                   margin:0!important}
+    /* Row layouts */
+    .viz-row{display:flex;gap:10px;flex:1;min-height:0}
+    .viz-row.single{flex-direction:column}
+
+    /* Individual widget boxes */
+    .wbox{background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,48,135,.1);
+          overflow:hidden;display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;
+          animation:fadeIn .3s ease}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    .wbox.kpi{flex:0 0 auto;min-height:110px;max-height:140px;min-width:160px;max-width:220px}
+    .wbox-title{padding:7px 12px;background:#F4F8FF;border-bottom:1px solid #E0EAF8;
+                font-size:10px;font-weight:600;color:#003087;text-transform:uppercase;
+                letter-spacing:.5px;flex-shrink:0}
+
+    /* Cognos widget div — fills the box */
+    .cogviz{flex:1;min-height:0;overflow:hidden}
+
+    /* Loading shimmer inside widget */
+    .shimmer{background:linear-gradient(90deg,#f0f4fa 25%,#e0eaf8 50%,#f0f4fa 75%);
+             background-size:200% 100%;animation:shimmer 1.4s infinite;height:100%}
+    @keyframes shimmer{0%{background-position:200%}100%{background-position:-200%}}
+
+    /* ── Spinner overlay (whole panel) ──────────────────────────────── */
+    #panel-spin{position:absolute;inset:0;background:rgba(240,244,250,.8);
+                display:none;align-items:center;justify-content:center;
+                flex-direction:column;gap:10px;z-index:50}
+    #panel-spin.on{display:flex}
+    .sp{width:32px;height:32px;border:3px solid #C0D8FF;border-top-color:#003087;
+        border-radius:50%;animation:ro .7s linear infinite}
+    @keyframes ro{to{transform:rotate(360deg)}}
   </style>
 </head>
 <body>
 
-<!-- ═══ HEADER ══════════════════════════════════════════════════════════ -->
+<!-- ═══ HEADER ════════════════════════════════════════════════════════ -->
 <div id="hdr">
   <div id="hdr-logo">🛃</div>
   <div id="hdr-title">Мониторинг на тарифни квоти
     <div id="hdr-sub">EU Защитни мерки · Глави 72 &amp; 73 · Произход Турция · Митническа Агенция България · 2019–2025</div>
   </div>
   <div class="hkpi"><div class="hkpi-v">13 650</div><div class="hkpi-l">Декларации</div></div>
-  <div class="hkpi"><div class="hkpi-v" style="color:#FFB347">€6.91M</div><div class="hkpi-l">Загуба приходи</div></div>
+  <div class="hkpi"><div class="hkpi-v" style="color:#FFB347">€7.12M</div><div class="hkpi-l">Загуба приходи</div></div>
   <div class="hkpi"><div class="hkpi-v" style="color:#FF6B6B">92</div><div class="hkpi-l">Риск 3C</div></div>
   <div class="hkpi"><div class="hkpi-v">40</div><div class="hkpi-l">Активни квоти</div></div>
   <div class="hkpi" style="border-left:1px solid rgba(255,255,255,.2);padding-left:13px">
-    <div class="hkpi-v" style="font-size:11px">
-      <span class="live-dot"></span>watsonx Live
-    </div>
-    <div class="hkpi-l">Orchestrate</div>
+    <div class="hkpi-v" style="font-size:11px"><span class="live-dot"></span>watsonx Live</div>
+    <div class="hkpi-l">Orchestrate + Cognos</div>
   </div>
 </div>
 
-<!-- ═══ MAIN ═════════════════════════════════════════════════════════════ -->
+<!-- ═══ MAIN ══════════════════════════════════════════════════════════ -->
 <div id="app">
 
-  <!-- ── LEFT: AI Chat ──────────────────────────────────────────────────── -->
+  <!-- ── LEFT: AI Chat ─────────────────────────────────────────────── -->
   <div id="cpanel">
     <div id="cph">
       <span class="live-dot"></span>
-      AI Асистент · watsonx Orchestrate · tariff_quota_monitor
+      AI Асистент · tariff_quota_monitor
     </div>
-
-    <!-- Appears when AI routes to a dashboard page -->
-    <div id="hbadge">
-      <span id="h-icon">📊</span>
-      <span id="h-txt">Превключване към таблото…</span>
-      <span id="hclose" onclick="dismissHint()">✕</span>
-    </div>
-
-    <!-- WXO webchat widget mounts here -->
     <div id="wxo-mount"></div>
   </div>
 
-  <!-- ── RESIZER ──────────────────────────────────────────────────────────── -->
+  <!-- ── RESIZER ───────────────────────────────────────────────────── -->
   <div id="rz"></div>
 
-  <!-- ── RIGHT: Cognos Dashboard ─────────────────────────────────────────── -->
-  <div id="dpanel">
+  <!-- ── RIGHT: Cognos Viz Panel ───────────────────────────────────── -->
+  <div id="dpanel" style="position:relative">
 
-    <!-- Tab bar — visual indicator of active Cognos page -->
-    <div id="tabs">
-      <div class="tab on" data-idx="0">📊&nbsp;Преглед на квоти</div>
-      <div class="tab"    data-idx="1">⚠️&nbsp;Рискови вносители</div>
-      <div class="tab"    data-idx="2">💰&nbsp;Загуба на приходи</div>
-      <div class="tab"    data-idx="3">🔮&nbsp;Прогноза и сигнали</div>
+    <!-- Context strip: what is currently shown -->
+    <div id="ctx-strip">
+      <span id="ctx-icon">📊</span>
+      <span id="ctx-lbl">Визуализации от Cognos Analytics</span>
+      <span id="ctx-sub">Задайте въпрос вляво →</span>
+      <span id="ctx-ai">🤖 AI</span>
     </div>
 
-    <!-- Status strip -->
-    <div id="strip">
-      <span>📌 Активна страница:</span>
-      <strong id="page-lbl">📊 Преглед на квоти</strong>
-      <span id="ai-badge">🤖 Превключено от AI</span>
-    </div>
-
-    <!-- Cognos iframe -->
-    <div id="fwrap">
-      <iframe id="cogframe"
-        src="about:blank"
-        allow="fullscreen"
-        sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation allow-modals">
-      </iframe>
-      <div id="spin">
-        <div class="sp"></div>
-        <div id="spin-msg">Зареждане на таблото…</div>
+    <!-- Default welcome state -->
+    <div id="welcome">
+      <div id="welcome-icon">📊</div>
+      <div id="welcome-title">Задайте въпрос на AI асистента</div>
+      <div id="welcome-sub">
+        Когато зададете въпрос, релевантните визуализации от Cognos ще се покажат тук автоматично.
+      </div>
+      <div class="hint-chips">
+        <span class="hchip" onclick="triggerDemo('quota')">📊 Покажи квоти</span>
+        <span class="hchip" onclick="triggerDemo('risk')">⚠️ Рискови вносители</span>
+        <span class="hchip" onclick="triggerDemo('loss')">💰 Загуба на приходи</span>
+        <span class="hchip" onclick="triggerDemo('forecast')">🔮 Прогноза</span>
       </div>
     </div>
 
-  </div>
-</div>
+    <!-- Viz area: populated dynamically -->
+    <div id="viz-area">
+      <!-- Widgets are injected here by showViz() -->
+    </div>
+
+    <!-- Spinner -->
+    <div id="panel-spin">
+      <div class="sp"></div>
+      <div style="font-size:11px;color:#446">Зареждане от Cognos…</div>
+    </div>
+
+  </div><!-- /dpanel -->
+</div><!-- /app -->
+
+<!-- Hidden Cognos widget divs — pre-created so the API can render into them -->
+<div id="model0000019fb83675ce_00000000" style="display:none;width:100%;height:100%"></div>
+<div id="model0000019fb814ed9e_00000000" style="display:none;width:100%;height:100%"></div>
+<div id="model0000019fb8878ea1_00000000" style="display:none;width:100%;height:100%"></div>
+<div id="model0000019fb8580039_00000000" style="display:none;width:100%;height:100%"></div>
+<div id="model0000019fcbd7e9dd_00000000" style="display:none;width:100%;height:100%"></div>
+<div id="model0000019fcbd11d1b_00000000" style="display:none;width:100%;height:100%"></div>
+<div id="model0000019fcc513e6e_00000000" style="display:none;width:100%;height:100%"></div>
 
 <script>
-/* ════════════════════════════════════════════════════════════════════════
-   CONFIGURATION — edit these if URLs change
-   ════════════════════════════════════════════════════════════════════════ */
-const CFG = {
-  // Cognos base URL — same origin as this HTML when served from webcontent\Custom\
-  cognosBase:  'http://useast.services.cloud.techzone.ibm.com:23661',
-  dashboardId: 'iCB3ECA38AE0E47558AC5783659E850B1',
+/* ════════════════════════════════════════════════════════════════════
+   WIDGET REGISTRY
+   Each entry maps a logical name → Cognos widget IDs + layout config
+   ════════════════════════════════════════════════════════════════════ */
+const ASSET_ID = 'iCB3ECA38AE0E47558AC5783659E850B1';
 
-  // WXO agent config
-  wxo: {
+const VIEWS = {
+  quota: {
+    icon: '📊', label: 'Използване на квоти', sub: 'Глави 72/73 · Турция · 40 активни квоти',
+    layout: 'kpi+chart',
+    kpi:   { id: 'model0000019fb814ed9e_00000000', title: 'Активни квоти' },
+    chart: { id: 'model0000019fb83675ce_00000000', title: 'Използване (%) по квота' },
+  },
+  risk: {
+    icon: '⚠️', label: 'Рискови вносители', sub: '92 Риск 3C · 72 Риск 1 · 62 Риск 3A',
+    layout: 'kpi+chart',
+    kpi:   { id: 'model0000019fb8580039_00000000', title: 'Вносители Риск 3C' },
+    chart: { id: 'model0000019fb8878ea1_00000000', title: 'Топ вносители по стойност' },
+  },
+  loss: {
+    icon: '💰', label: 'Загуба на приходи', sub: '€7.12M · АД мито 25% + ДДС 20%',
+    layout: 'kpi+chart',
+    kpi:   { id: 'model0000019fcbd11d1b_00000000', title: 'Обща загуба (EUR)' },
+    chart: { id: 'model0000019fcbd7e9dd_00000000', title: 'Загуба по тарифен код' },
+  },
+  forecast: {
+    icon: '🔮', label: 'Прогноза и сигнали', sub: '19 прогнози · 18 изчерпани квоти',
+    layout: 'chart',
+    chart: { id: 'model0000019fcc513e6e_00000000', title: 'Прогноза за изчерпване' },
+  },
+};
+
+/* Keyword routing: agent reply text → view key */
+const KW = [
+  { v:'loss',     r:/загуба|приход|мито|ддс|ценова.?аном|loss|vat|duty|state.?loss|revenue|fiscal/i },
+  { v:'forecast', r:/прогноза|predict|изчерп|forecast|дневна.?консум|exhaustion/i },
+  { v:'risk',     r:/вносител|риск|аномал|флаг|fraud|split|concurrent|3[ABC]/i },
+  { v:'quota',    r:/квота|utilisa|utiliza|остатък|баланс|блокир|quota|initial.?volume/i },
+];
+
+/* dashboard_hint → view key */
+const HINT_MAP = {
+  quota_overview: 'quota', importer_risk: 'risk',
+  state_loss: 'loss',      forecast_alerts: 'forecast',
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   COGNOS API — one shared instance for all widgets
+   ════════════════════════════════════════════════════════════════════ */
+let cognosApiPromise = null;   // single shared promise
+let renderedWidgets  = {};     // track which widget IDs have been rendered
+
+function getCognosApi() {
+  if (!cognosApiPromise) {
+    cognosApiPromise = (new CognosDashboardApi())
+      .create({ assetID: ASSET_ID })
+      .then(api => {
+        console.log('✅ CognosDashboardApi ready');
+        return api;
+      })
+      .catch(err => {
+        console.error('❌ CognosDashboardApi failed:', err);
+        cognosApiPromise = null;  // allow retry
+        throw err;
+      });
+  }
+  return cognosApiPromise;
+}
+
+function renderWidget(api, widgetId, targetEl) {
+  if (renderedWidgets[widgetId]) {
+    console.log(`♻️ Widget ${widgetId} already rendered — reusing`);
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      api.getFeature('Canvas')
+         .getContent(widgetId)
+         .getFeature('Renderer')
+         .render(targetEl, { visualizationHeader: true });
+      renderedWidgets[widgetId] = true;
+      console.log(`✅ Rendered widget: ${widgetId}`);
+      resolve();
+    } catch(e) {
+      console.error(`❌ Render failed for ${widgetId}:`, e);
+      reject(e);
+    }
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   SHOW VIZ — main function called when AI routes to a view
+   ════════════════════════════════════════════════════════════════════ */
+let currentView = null;
+let autoTimer   = null;
+
+function showViz(viewKey, triggeredByAI = false) {
+  const view = VIEWS[viewKey];
+  if (!view) return;
+  if (viewKey === currentView && !triggeredByAI) return;
+  currentView = viewKey;
+
+  // Update context strip
+  document.getElementById('ctx-icon').textContent = view.icon;
+  document.getElementById('ctx-lbl').textContent  = view.label;
+  document.getElementById('ctx-sub').textContent  = view.sub;
+  const aiB = document.getElementById('ctx-ai');
+  if (triggeredByAI) {
+    aiB.classList.add('on');
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(() => aiB.classList.remove('on'), 7000);
+  } else {
+    aiB.classList.remove('on');
+  }
+
+  // Hide welcome, show viz area
+  document.getElementById('welcome').style.display  = 'none';
+  const vizArea = document.getElementById('viz-area');
+  vizArea.classList.add('on');
+  vizArea.innerHTML = ''; // clear previous layout
+
+  // Show spinner
+  const spin = document.getElementById('panel-spin');
+  spin.classList.add('on');
+
+  // Build layout
+  if (view.layout === 'kpi+chart') {
+    // Row: [KPI box (narrow)] [Chart box (wide)]
+    const row = document.createElement('div');
+    row.className = 'viz-row';
+
+    // KPI box
+    const kpiBox = document.createElement('div');
+    kpiBox.className = 'wbox kpi';
+    kpiBox.innerHTML = `<div class="wbox-title">${view.kpi.title}</div>
+                        <div class="cogviz shimmer" id="slot-kpi"></div>`;
+    row.appendChild(kpiBox);
+
+    // Chart box
+    const chartBox = document.createElement('div');
+    chartBox.className = 'wbox';
+    chartBox.innerHTML = `<div class="wbox-title">${view.chart.title}</div>
+                          <div class="cogviz shimmer" id="slot-chart"></div>`;
+    row.appendChild(chartBox);
+
+    vizArea.appendChild(row);
+
+    // Render via Cognos API
+    getCognosApi().then(api => {
+      // Move the pre-created hidden divs into the slot divs
+      const kpiSlot   = document.getElementById('slot-kpi');
+      const chartSlot = document.getElementById('slot-chart');
+      const kpiDiv    = document.getElementById(view.kpi.id);
+      const chartDiv  = document.getElementById(view.chart.id);
+
+      kpiSlot.classList.remove('shimmer');
+      chartSlot.classList.remove('shimmer');
+
+      kpiSlot.style.cssText   = 'flex:1;min-height:0;overflow:hidden';
+      chartSlot.style.cssText = 'flex:1;min-height:0;overflow:hidden';
+
+      // Move divs into slots and make visible
+      kpiDiv.style.cssText   = 'width:100%;height:100%;display:block';
+      chartDiv.style.cssText = 'width:100%;height:100%;display:block';
+      kpiSlot.appendChild(kpiDiv);
+      chartSlot.appendChild(chartDiv);
+
+      return Promise.all([
+        renderWidget(api, view.kpi.id,   kpiDiv),
+        renderWidget(api, view.chart.id, chartDiv),
+      ]);
+    }).then(() => {
+      spin.classList.remove('on');
+    }).catch(err => {
+      spin.classList.remove('on');
+      showError(vizArea, err);
+    });
+
+  } else {
+    // Chart only — full height
+    const row = document.createElement('div');
+    row.className = 'viz-row';
+    const chartBox = document.createElement('div');
+    chartBox.className = 'wbox';
+    chartBox.innerHTML = `<div class="wbox-title">${view.chart.title}</div>
+                          <div class="cogviz shimmer" id="slot-chart-only"></div>`;
+    row.appendChild(chartBox);
+    vizArea.appendChild(row);
+
+    getCognosApi().then(api => {
+      const slot     = document.getElementById('slot-chart-only');
+      const chartDiv = document.getElementById(view.chart.id);
+      slot.classList.remove('shimmer');
+      slot.style.cssText    = 'flex:1;min-height:0;overflow:hidden';
+      chartDiv.style.cssText = 'width:100%;height:100%;display:block';
+      slot.appendChild(chartDiv);
+      return renderWidget(api, view.chart.id, chartDiv);
+    }).then(() => {
+      spin.classList.remove('on');
+    }).catch(err => {
+      spin.classList.remove('on');
+      showError(vizArea, err);
+    });
+  }
+}
+
+function showError(container, err) {
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                height:100%;gap:12px;color:#900;text-align:center;padding:24px">
+      <div style="font-size:32px">⚠️</div>
+      <div style="font-size:13px;font-weight:600">Грешка при зареждане от Cognos</div>
+      <div style="font-size:11px;color:#666;max-width:320px">${err?.message || err}</div>
+      <div style="font-size:10px;color:#999">Уверете се, че сте логнати в Cognos и опитайте отново.</div>
+    </div>`;
+}
+
+/* Demo trigger from hint chips */
+function triggerDemo(viewKey) { showViz(viewKey, false); }
+
+/* ════════════════════════════════════════════════════════════════════
+   AGENT RESPONSE ROUTING
+   Parse dashboard_hint from tool JSON or keyword scan
+   ════════════════════════════════════════════════════════════════════ */
+function routeAgentReply(text) {
+  if (!text) return;
+
+  // 1. Structured hint from tool response JSON
+  const m = text.match(/"dashboard_hint"\s*:\s*"([^"]+)"/);
+  if (m && HINT_MAP[m[1].trim()]) {
+    showViz(HINT_MAP[m[1].trim()], true);
+    return;
+  }
+  // 2. Keyword fallback
+  for (const { v, r } of KW) {
+    if (r.test(text)) { showViz(v, true); return; }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   WXO WEBCHAT
+   ════════════════════════════════════════════════════════════════════ */
+function initWXO() {
+  window.wxOConfiguration = {
     orchestrationID: 'e3e27e19f79b419287ec1972448924d0_37478da1-a7f1-42d1-bf84-52d550b15074',
     hostURL:         'https://eu-de.watson-orchestrate.cloud.ibm.com',
     rootElementID:   'wxo-mount',
@@ -188,255 +444,49 @@ const CFG = {
     crn: 'crn:v1:bluemix:public:watsonx-orchestrate:eu-de:a/e3e27e19f79b419287ec1972448924d0:37478da1-a7f1-42d1-bf84-52d550b15074::',
     deploymentPlatform: 'ibmcloud',
     chatOptions: { agentId: '611bd166-5f76-402c-9e45-39267564728b' }
-  }
-};
-
-/* Tab definitions */
-const TABS = [
-  { idx:0, lbl:'📊 Преглед на квоти',   icon:'📊', hint:'quota_overview'   },
-  { idx:1, lbl:'⚠️ Рискови вносители', icon:'⚠️', hint:'importer_risk'    },
-  { idx:2, lbl:'💰 Загуба на приходи',  icon:'💰', hint:'state_loss'       },
-  { idx:3, lbl:'🔮 Прогноза и сигнали', icon:'🔮', hint:'forecast_alerts'  },
-];
-const HINT_TO_IDX = Object.fromEntries(TABS.map(t => [t.hint, t.idx]));
-
-/* ════════════════════════════════════════════════════════════════════════
-   STATE
-   ════════════════════════════════════════════════════════════════════════ */
-let activeTab   = 0;        // currently shown tab index
-let cogApi      = null;     // Cognos JS API handle (populated after SDK loads)
-let cogBoard    = null;     // Cognos board/dashboard handle
-let cogPages    = null;     // array of page handles from Cognos API
-let autoTimer   = null;
-let hintTimer   = null;
-let frameReady  = false;    // true once iframe fires its first load event
-
-/* ════════════════════════════════════════════════════════════════════════
-   COGNOS IFRAME INIT
-   Load the dashboard into the iframe. The Cognos JS API (CognosApi) is
-   loaded from the same server, so same-origin restrictions don't apply.
-   ════════════════════════════════════════════════════════════════════════ */
-const DASH_URL = `${CFG.cognosBase}/bi/?perspective=dashboard` +
-                 `&objRef=${CFG.dashboardId}&isAuthoringMode=false`;
-const SDK_URL  = `${CFG.cognosBase}/bi/v1/ext/com.ibm.bi.dashboard.core-features` +
-                 `/js/dashboard/dashboard-sdk.js`;
-
-function initCognos() {
-  const fr = document.getElementById('cogframe');
-  const sp = document.getElementById('spin');
-
-  // Show spinner, load dashboard
-  sp.classList.remove('hidden');
-  fr.src = DASH_URL;
-
-  fr.addEventListener('load', () => {
-    frameReady = true;
-    // Try to load the Cognos SDK and get API handle
-    loadCognosSDK();
-    // Spinner hides after a short delay to let Cognos render
-    setTimeout(() => sp.classList.add('hidden'), 2500);
-  }, { once: true });
-}
-
-function loadCognosSDK() {
-  const s = document.createElement('script');
-  s.src = SDK_URL;
-  s.onload = () => {
-    // SDK may expose DashboardAPI or CognosApi depending on version
-    const ApiClass = window.DashboardAPI || window.CognosApi;
-    if (!ApiClass) {
-      console.info('Cognos SDK loaded but no API class found — tab switching via URL fallback');
-      return;
-    }
-    try {
-      cogApi = new ApiClass({
-        cognosRootURL:    CFG.cognosBase + '/bi/',
-        useSharedSession: true,   // reuses the existing Cognos session cookie
-        sessionCode:      null
-      });
-      // Get the board so we can switch pages programmatically
-      cogApi.getBoard().then(board => {
-        cogBoard = board;
-        cogPages = board.getPages();
-        console.log(`✅ Cognos API ready — ${cogPages ? cogPages.length : '?'} pages`);
-      }).catch(e => console.warn('Cognos getBoard failed:', e));
-    } catch (e) {
-      console.warn('Cognos API init error:', e);
-    }
   };
-  s.onerror = () => console.info('Cognos SDK not found — using URL reload fallback');
-  document.head.appendChild(s);
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   TAB SWITCHING
-   Three methods tried in order:
-   1. Cognos JS API (setCurrentPage) — instant, no flash, same-origin only
-   2. URL reload with cache-buster — always works, causes brief flash
-   ════════════════════════════════════════════════════════════════════════ */
-function switchTab(idx, triggeredByAI = false) {
-  if (idx === activeTab && !triggeredByAI) return;
-  activeTab = idx;
-
-  /* Update tab pill UI */
-  document.querySelectorAll('.tab').forEach(t => {
-    const i = +t.dataset.idx;
-    t.classList.toggle('on', i === idx);
-    t.classList.remove('ai-hint');
-  });
-  if (triggeredByAI) {
-    document.querySelectorAll('.tab')[idx].classList.add('ai-hint');
-    setTimeout(() => document.querySelectorAll('.tab')[idx].classList.remove('ai-hint'), 3000);
-  }
-
-  /* Update status strip */
-  document.getElementById('page-lbl').textContent = TABS[idx].lbl;
-  const aiBadge = document.getElementById('ai-badge');
-  if (triggeredByAI) {
-    aiBadge.classList.add('on');
-    clearTimeout(autoTimer);
-    autoTimer = setTimeout(() => aiBadge.classList.remove('on'), 7000);
-  } else {
-    aiBadge.classList.remove('on');
-  }
-
-  /* Method 1: Cognos JS API — no page reload, instant */
-  if (cogBoard && cogPages && cogPages[idx]) {
-    try {
-      cogBoard.setCurrentPage(cogPages[idx].getId());
-      console.log(`✅ Cognos API: switched to page ${idx}`);
-      return;
-    } catch (e) {
-      console.warn('cogBoard.setCurrentPage failed, falling back to reload:', e);
-    }
-  }
-
-  /* Method 2: URL reload (same-origin — no cookie issue) */
-  const fr = document.getElementById('cogframe');
-  const sp = document.getElementById('spin');
-  sp.classList.remove('hidden');
-  fr.onload = () => setTimeout(() => sp.classList.add('hidden'), 2000);
-  fr.src = DASH_URL + `&_t=${Date.now()}`;
-  console.log(`ℹ️ Tab ${idx}: URL reload (Cognos API not ready yet)`);
-}
-
-/* Manual tab click */
-document.querySelectorAll('.tab').forEach(t =>
-  t.addEventListener('click', () => switchTab(+t.dataset.idx, false))
-);
-
-/* ════════════════════════════════════════════════════════════════════════
-   HINT BADGE (above WXO chat)
-   ════════════════════════════════════════════════════════════════════════ */
-function showHint(tabIdx) {
-  const tab = TABS[tabIdx];
-  if (!tab) return;
-  document.getElementById('h-icon').textContent = tab.icon;
-  document.getElementById('h-txt').innerHTML =
-    `AI превключва към <strong>${tab.lbl}</strong>`;
-  document.getElementById('hbadge').classList.add('on');
-  clearTimeout(hintTimer);
-  hintTimer = setTimeout(dismissHint, 8000);
-}
-function dismissHint() {
-  document.getElementById('hbadge').classList.remove('on');
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   AGENT RESPONSE ROUTING
-   Parse dashboard_hint from agent tool responses → switch Cognos tab.
-   Two methods: structured JSON field (from our tools) + keyword fallback.
-   ════════════════════════════════════════════════════════════════════════ */
-const KW = [
-  { t:2, r:/загуба|приход|мито|ддс|ценова.?аном|fiscal|loss|vat|duty|state.?loss|revenue/i },
-  { t:3, r:/прогноза|predict|изчерп|forecast|проект|дневна.?консум|exhaustion/i },
-  { t:1, r:/вносител|риск|аномал|флаг|fraud|split|concurrent|3[ABC]/i },
-  { t:0, r:/квота|utilisa|utiliza|остатък|баланс|блокир|quota|initial.?volume/i },
-];
-
-function routeResponse(text) {
-  // 1. Structured hint from tool JSON output
-  const m = text.match(/"dashboard_hint"\s*:\s*"([^"]+)"/);
-  if (m) {
-    const idx = HINT_TO_IDX[m[1].trim()];
-    if (idx !== undefined) return idx;
-  }
-  // 2. Keyword scan
-  for (const { t, r } of KW) if (r.test(text)) return t;
-  return null;
-}
-
-function onAgentMessage(text) {
-  if (!text) return;
-  const idx = routeResponse(text);
-  if (idx !== null) {
-    showHint(idx);
-    switchTab(idx, true);
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   WXO WEBCHAT — inline mount in #wxo-mount
-   showLauncher: false  →  no floating bubble, widget fills the panel
-   rootElementID: 'wxo-mount'  →  renders inside our left panel
-   ════════════════════════════════════════════════════════════════════════ */
-function initWXO() {
-  window.wxOConfiguration = CFG.wxo;
 
   const s = document.createElement('script');
-  s.src = `${CFG.wxo.hostURL}/wxochat/wxoLoader.js?embed=true`;
-  s.onload = () => {
-    if (typeof wxoLoader !== 'undefined') {
-      wxoLoader.init();
-      console.log('✅ WXO webchat mounted in #wxo-mount');
-    }
-  };
-  s.onerror = () => console.warn('⚠️ WXO loader script failed to load');
+  s.src = 'https://eu-de.watson-orchestrate.cloud.ibm.com/wxochat/wxoLoader.js?embed=true';
+  s.onload = () => { if (typeof wxoLoader !== 'undefined') wxoLoader.init(); };
+  s.onerror = () => console.warn('WXO loader unavailable');
   document.head.appendChild(s);
 
-  /* Listen for agent reply postMessages from WXO widget */
+  // Listen for agent messages → route to Cognos viz
   window.addEventListener('message', evt => {
     try {
       const d = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
       if (!d) return;
-      const isAgentMsg = ['agentMessage','chat_message','wxo_message','message',
-                          'agent_response','response'].includes(d.type);
-      if (isAgentMsg) {
+      if (['agentMessage','chat_message','wxo_message','message','agent_response','response']
+           .includes(d.type)) {
         const txt = d.text || d.message || d.content || d.body || d.response || '';
-        if (txt) onAgentMessage(txt);
+        if (txt) routeAgentReply(txt);
       }
-    } catch (_) { /* ignore non-JSON messages */ }
+    } catch(_) {}
   });
 }
 
-/* ════════════════════════════════════════════════════════════════════════
-   DRAG RESIZE (left ↔ right panels)
-   ════════════════════════════════════════════════════════════════════════ */
-(function () {
-  const rz = document.getElementById('rz');
-  const cp = document.getElementById('cpanel');
-  let drag = false, startX = 0, startW = 0;
-  rz.addEventListener('mousedown', e => {
-    drag=true; startX=e.clientX; startW=cp.offsetWidth;
-    rz.classList.add('d');
-    document.body.style.cssText='cursor:col-resize;user-select:none';
-  });
-  document.addEventListener('mousemove', e => {
-    if (!drag) return;
-    cp.style.width = Math.max(280, Math.min(600, startW+(e.clientX-startX)))+'px';
-  });
-  document.addEventListener('mouseup', () => {
-    if (!drag) return; drag=false;
-    rz.classList.remove('d'); document.body.style.cssText='';
-  });
+/* ════════════════════════════════════════════════════════════════════
+   DRAG RESIZE
+   ════════════════════════════════════════════════════════════════════ */
+(function(){
+  const rz=document.getElementById('rz'), cp=document.getElementById('cpanel');
+  let drag=false, sx=0, sw=0;
+  rz.addEventListener('mousedown', e=>{drag=true;sx=e.clientX;sw=cp.offsetWidth;
+    rz.classList.add('d');document.body.style.cssText='cursor:col-resize;user-select:none'});
+  document.addEventListener('mousemove', e=>{
+    if(!drag)return; cp.style.width=Math.max(280,Math.min(600,sw+(e.clientX-sx)))+'px'});
+  document.addEventListener('mouseup', ()=>{
+    if(!drag)return;drag=false;rz.classList.remove('d');document.body.style.cssText=''});
 })();
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════
    BOOT
-   ════════════════════════════════════════════════════════════════════════ */
+   ════════════════════════════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
-  initWXO();      // start WXO chat widget
-  initCognos();   // load Cognos dashboard + SDK
+  initWXO();
+  // Pre-warm the Cognos API connection (silent — don't show anything yet)
+  getCognosApi().catch(() => {});
 });
 </script>
 </body>
