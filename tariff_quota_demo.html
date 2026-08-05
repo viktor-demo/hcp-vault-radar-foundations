@@ -227,15 +227,14 @@
 
     <div id="viz-area"></div>
 
-    <!-- Auth-required overlay — shown when Cognos session not established -->
+    <!-- Auth-required overlay — shown until Cognos externalLogin popup completes -->
     <div id="auth-overlay">
       <div style="font-size:48px">🔐</div>
       <h3>Необходим е вход в Cognos</h3>
       <p>Визуализациите изискват активна сесия в Cognos Analytics.<br>
-         Щракнете по-долу, за да влезете автоматично.</p>
-      <div id="auth-progress"></div>
-      <button class="auth-btn" onclick="triggerAutoLogin()">🔄 Автоматичен вход</button>
-      <button class="auth-btn sec" onclick="openManualLogin()">🌐 Ръчен вход (нов прозорец)</button>
+         Ще се отвори прозорец за вход — влезте с <strong>IBMDem0s</strong>.</p>
+      <div id="auth-progress">⏳ Отваря се прозорец за вход…</div>
+      <button class="auth-btn" onclick="openLoginPopup()">🔑 Отвори вход отново</button>
     </div>
 
     <div id="panel-spin"><div class="sp"></div>
@@ -285,11 +284,13 @@ const VIEWS = {
   },
 };
 
+// Priority order matters — first match wins.
+// More specific patterns first, broader ones last.
 const KW = [
-  {v:'loss',     r:/загуба|приход|мито|ддс|ценова.?аном|loss|vat|duty|state.?loss|revenue/i},
-  {v:'forecast', r:/прогноза|predict|изчерп|forecast|дневна.?консум|exhaustion/i},
-  {v:'risk',     r:/вносител|риск|аномал|флаг|fraud|split|concurrent|3[ABC]/i},
-  {v:'quota',    r:/квота|utilisa|utiliza|остатък|баланс|блокир|quota|initial.?volume/i},
+  {v:'loss',     r:/загуба|приход|ценова.?аном|state.?loss|loss.*taric|loss.*tarif|total.?loss|fiscal.?loss|vat.*duty|duty.*vat/i},
+  {v:'forecast', r:/прогноза\b|forecast|predicted.*exhaust|exhaust.*date|days.?remain/i},
+  {v:'risk',     r:/\bриск\b|аномал|флаг|вносител.*риск|риск.*вносител|fraud|split.?ship|concurrent|3[ABC]|high.?risk/i},
+  {v:'quota',    r:/квота|utilisa|utiliza|остатък|баланс|блокир|quota|initial.?volume|quota.*order|order.*number|покажи.*квот/i},
 ];
 const HINT_MAP = {
   quota_overview:'quota', importer_risk:'risk',
@@ -297,13 +298,34 @@ const HINT_MAP = {
 };
 
 /* ════════════════════════════════════════════════════════════════
-   COGNOS AUTH — server-side session via Flask proxy
-   ════════════════════════════════════════════════════════════════ */
-let _cognosAuthed  = false;
-let _authCheckInterval = null;
+   COGNOS AUTH — externalLogin popup flow
+   ════════════════════════════════════════════════════════════════
 
-/* Ask Flask whether its server-side Cognos session is authenticated */
-async function checkCognosAuth() {
+   How it works:
+   1. On boot, open /api/cognos/bi?perspective=externalLogin&externalOrigin=...
+      in a popup — this is Cognos's OWN designed embedding login flow
+   2. User logs in (credentials pre-filled if Cognos allows)
+   3. After login Cognos redirects to a page that calls window.opener.cognosLoginComplete()
+   4. Main tab calls onCognosAuthed() → hides overlay, loads widgets
+
+   The popup IS the auth mechanism — no programmatic credential POST needed.
+   ════════════════════════════════════════════════════════════════ */
+let _cognosAuthed      = false;
+let _loginPoll         = null;
+let _loginPopup        = null;
+
+/* Called by Flask's /api/cognos/auth-complete page via window.opener */
+window.cognosLoginComplete = function(ok) {
+  if (ok) {
+    onCognosAuthed();
+  } else {
+    const prog = document.getElementById('auth-progress');
+    if (prog) prog.textContent = '⚠️ Влизането не беше потвърдено. Опитайте отново.';
+  }
+};
+
+/* Poll Flask status — catches the case where popup set cookies that Flask saw */
+async function pollCognosStatus() {
   try {
     const r = await fetch('/api/cognos/status', {credentials:'include'});
     if (!r.ok) return false;
@@ -312,38 +334,11 @@ async function checkCognosAuth() {
   } catch(_) { return false; }
 }
 
-/* Tell Flask to perform auto-login using hardcoded credentials */
-async function triggerAutoLogin() {
-  const prog = document.getElementById('auth-progress');
-  const btn  = document.getElementById('cognos-login-btn');
-  if (prog) prog.textContent = '⏳ Влизам автоматично…';
-  btn.classList.add('loading');
-
-  try {
-    const r = await fetch('/api/cognos/login', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({}),   // use Flask's built-in credentials
-      credentials:'include',
-    });
-    const d = await r.json();
-    if (d.authenticated) {
-      onCognosAuthed();
-      if (prog) prog.textContent = '✅ Влизането е успешно!';
-    } else {
-      if (prog) prog.textContent = '⚠️ ' + (d.message || 'Неуспешен вход — опитайте ръчно.');
-      btn.classList.remove('loading');
-    }
-  } catch(e) {
-    if (prog) prog.textContent = '❌ Грешка: ' + e.message;
-    btn.classList.remove('loading');
-  }
-}
-
 /* Called when Cognos session is confirmed authenticated */
 function onCognosAuthed() {
   _cognosAuthed = true;
-  if (_authCheckInterval) { clearInterval(_authCheckInterval); _authCheckInterval = null; }
+  if (_loginPoll) { clearInterval(_loginPoll); _loginPoll = null; }
+  if (_loginPopup && !_loginPopup.closed) _loginPopup.close();
 
   // Hide auth overlay
   document.getElementById('auth-overlay').classList.remove('on');
@@ -355,81 +350,53 @@ function onCognosAuthed() {
   btn.classList.remove('loading');
   btn.onclick = null;
 
-  // Reset Cognos API so it picks up the new authenticated session
+  // Reset Cognos API so it reinitialises with the authenticated session
   cognosApiPromise = null;
   renderedWidgets  = {};
 
+  console.log('✅ Cognos authenticated — loading widgets');
   // Retry any pending viz
   if (currentView) showViz(currentView, false);
 }
 
-/* Open Cognos login in a new window — manual fallback */
-function openManualLogin() {
-  const w = window.open(
-    '/api/cognos/bi?perspective=logon',
-    'CognosLogin',
-    'width=800,height=600,menubar=no,toolbar=no'
-  );
-  // Poll for successful login after the popup is used
-  const poll = setInterval(async () => {
-    const ok = await checkCognosAuth();
-    if (ok) {
-      clearInterval(poll);
-      if (w && !w.closed) w.close();
-      onCognosAuthed();
-    }
-  }, 2000);
-  // Stop polling after 5 min
-  setTimeout(() => clearInterval(poll), 300000);
-}
+/* Open the Cognos externalLogin popup — the ONLY reliable auth path */
+function openLoginPopup() {
+  const prog = document.getElementById('auth-progress');
+  if (prog) prog.textContent = '⏳ Отваря се прозорец за вход…';
 
-/* Called by the header button when NOT authed */
-function manualLogin() {
-  document.getElementById('auth-overlay').classList.add('on');
-  triggerAutoLogin();   // attempt auto-login first, overlay stays visible with progress
-}
+  const loginUrl = '/api/cognos/bi?perspective=externalLogin&externalOrigin=http://localhost:5001';
+  _loginPopup = window.open(loginUrl, 'CognosLogin',
+    'width=900,height=650,menubar=no,toolbar=no,location=yes,status=no');
 
-/* Boot-time auth initialisation:
-   1. Try auto-login via Flask (credentials are baked into app.py)
-   2. If that fails, show the auth overlay
-   3. Poll /api/cognos/status every 5s as a background safety net */
-async function initCognosAuth() {
-  // First: ask Flask's current state (it tries auto-login at startup in a thread)
-  // Give it up to 8s to finish
-  let ok = false;
-  for (let i = 0; i < 4; i++) {
-    ok = await checkCognosAuth();
-    if (ok) break;
-    await new Promise(r => setTimeout(r, 2000));
-  }
-
-  if (ok) {
-    onCognosAuthed();
+  if (!_loginPopup) {
+    if (prog) prog.textContent = '⚠️ Блокиран изскачащ прозорец! Разрешете изскачащи прозорци и опитайте отново.';
     return;
   }
+  if (prog) prog.textContent = '⏳ Влезте в Cognos в отворения прозорец…';
 
-  // Flask startup login didn't succeed — trigger an explicit login attempt
-  ok = await (async () => {
-    try {
-      const r = await fetch('/api/cognos/login', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({}), credentials:'include',
-      });
-      const d = await r.json();
-      return d.authenticated === true;
-    } catch(_) { return false; }
-  })();
+  // Poll Flask status every 2s — when popup login completes Flask proxy
+  // session gets the auth cookie and /api/cognos/status returns authenticated:true
+  _loginPoll = setInterval(async () => {
+    const ok = await pollCognosStatus();
+    if (ok) { clearInterval(_loginPoll); _loginPoll = null; onCognosAuthed(); }
+  }, 2000);
 
-  if (ok) { onCognosAuthed(); return; }
+  // Stop polling after 5 min
+  setTimeout(() => { if (_loginPoll) clearInterval(_loginPoll); }, 300000);
+}
 
-  // Both failed — show overlay and keep polling in background
-  console.warn('⚠️  Cognos auto-login failed — showing auth overlay');
+/* Called by header button and overlay auto-login button */
+function manualLogin() {
   document.getElementById('auth-overlay').classList.add('on');
+  openLoginPopup();
+}
+function triggerAutoLogin() { openLoginPopup(); }
 
-  _authCheckInterval = setInterval(async () => {
-    const ok = await checkCognosAuth();
-    if (ok) onCognosAuthed();
-  }, 5000);
+/* Boot: show overlay immediately and open popup automatically */
+function initCognosAuth() {
+  document.getElementById('auth-overlay').classList.add('on');
+  // Small delay so the page renders before popup opens
+  setTimeout(openLoginPopup, 800);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -476,7 +443,8 @@ let currentView = null, autoTimer = null;
 
 function showViz(key, byAI=false) {
   const view = VIEWS[key];
-  if (!view || (key === currentView && !byAI)) return;
+  if (!view) return;
+  // Allow re-render if triggered by AI (re-attaches widgets cleanly)
   currentView = key;
 
   document.getElementById('ctx-icon').textContent = view.icon;
@@ -501,25 +469,26 @@ function showViz(key, byAI=false) {
   if (view.layout === 'kpi+chart') {
     const kpiBox = document.createElement('div');
     kpiBox.className = 'wbox kpi';
-    kpiBox.innerHTML = `<div class="wbox-title">${view.kpi.title}</div><div class="cogviz shimmer" id="slot-kpi"></div>`;
+    kpiBox.innerHTML = `<div class="wbox-title">${view.kpi.title}</div><div class="cogviz" id="slot-kpi"></div>`;
     const chartBox = document.createElement('div');
     chartBox.className = 'wbox';
-    chartBox.innerHTML = `<div class="wbox-title">${view.chart.title}</div><div class="cogviz shimmer" id="slot-chart"></div>`;
+    chartBox.innerHTML = `<div class="wbox-title">${view.chart.title}</div><div class="cogviz" id="slot-chart"></div>`;
     row.appendChild(kpiBox);
     row.appendChild(chartBox);
     va.appendChild(row);
 
     getCognosApi().then(api => {
-      ['kpi','chart'].forEach(s => {
+      return Promise.all(['kpi','chart'].map(s => {
         const slot = document.getElementById(`slot-${s}`);
         const wid  = view[s].id;
-        const div  = document.getElementById(wid);
-        slot.classList.remove('shimmer');
+        // Retrieve the widget div — may already be attached elsewhere, reattach safely
+        const div  = document.getElementById(wid) || document.querySelector(`[id="${wid}"]`);
+        if (!slot || !div) return Promise.resolve();
         slot.style.cssText = 'flex:1;min-height:0;overflow:hidden';
         div.style.cssText  = 'width:100%;height:100%;display:block';
-        slot.appendChild(div);
+        slot.appendChild(div);   // moves it if already in DOM
         return renderWidget(api, wid, div);
-      });
+      }));
     })
     .then(() => document.getElementById('panel-spin').classList.remove('on'))
     .catch(err => {
@@ -530,18 +499,19 @@ function showViz(key, byAI=false) {
   } else {
     const chartBox = document.createElement('div');
     chartBox.className = 'wbox';
-    chartBox.innerHTML = `<div class="wbox-title">${view.chart.title}</div><div class="cogviz shimmer" id="slot-only"></div>`;
+    chartBox.innerHTML = `<div class="wbox-title">${view.chart.title}</div><div class="cogviz" id="slot-only"></div>`;
     row.appendChild(chartBox);
     va.appendChild(row);
 
     getCognosApi().then(api => {
-      const slot = document.getElementById('slot-only');
-      const div  = document.getElementById(view.chart.id);
-      slot.classList.remove('shimmer');
+      const slot   = document.getElementById('slot-only');
+      const wid    = view.chart.id;
+      const div    = document.getElementById(wid) || document.querySelector(`[id="${wid}"]`);
+      if (!slot || !div) return;
       slot.style.cssText = 'flex:1;min-height:0;overflow:hidden';
       div.style.cssText  = 'width:100%;height:100%;display:block';
       slot.appendChild(div);
-      return renderWidget(api, view.chart.id, div);
+      return renderWidget(api, wid, div);
     })
     .then(() => document.getElementById('panel-spin').classList.remove('on'))
     .catch(err => {
