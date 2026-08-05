@@ -3,64 +3,36 @@
 	IBM Corp. 2013 2023 US Government Users Restricted Rights - Use, duplication
 	or disclosure restricted by GSA ADP Schedule Contract with IBM Corp. -->
 <server description="Cognos Analytics ver_11.1.2.0">
-
 <featureManager>
-    <feature>cors-1.0</feature>
-    <feature>jsp-2.3</feature>
-    <feature>localConnector-1.0</feature>
-    <feature>servlet-3.1</feature>
-    <feature>jaxrs-2.0</feature>
-    <feature>cdi-1.2</feature>
-    <feature>monitor-1.0</feature>
-    <feature>jndi-1.0</feature>
-    <feature>ssl-1.0</feature>
+<feature>jsp-2.3</feature>
+<feature>localConnector-1.0</feature>
+<feature>servlet-3.1</feature>
+<feature>jaxrs-2.0</feature>
+<feature>cdi-1.2</feature>
+<feature>monitor-1.0</feature>
+<feature>jndi-1.0</feature>
+<feature>ssl-1.0</feature>
 </featureManager>
-
 <cdi12 enableImplicitBeanArchives="false"/>
-
-<!-- CORS: allow embedding from Mac Flask app (localhost:5001) -->
-<cors domain="http://localhost:5001"
-      allowedMethods="GET, POST, PUT, DELETE, OPTIONS, HEAD"
-      allowedHeaders="Content-Type, Authorization, X-Xsrf-Token, X-Audit-Datasearchpath, X-Audit-Type, X-Queryuserid, X-Model-Last-Modified, X-Audit-Searchpath, X-Qs-Querycontext-Id, X-Ca-Affinity, Etag, X-Ca-Transaction, X-Compressed-By, X-Qs-Request-Id, x-audit-dashboardid"
-      exposeHeaders="X-Ca-Affinity"
-      allowCredentials="true"
-      maxAge="3600"/>
-
-<cors domain="http://127.0.0.1:5001"
-      allowedMethods="GET, POST, PUT, DELETE, OPTIONS, HEAD"
-      allowedHeaders="Content-Type, Authorization, X-Xsrf-Token, X-Audit-Datasearchpath, X-Audit-Type, X-Queryuserid, X-Model-Last-Modified, X-Audit-Searchpath, X-Qs-Querycontext-Id, X-Ca-Affinity, Etag, X-Ca-Transaction, X-Compressed-By, X-Qs-Request-Id, x-audit-dashboardid"
-      exposeHeaders="X-Ca-Affinity"
-      allowCredentials="true"
-      maxAge="3600"/>
-
 <logging consoleLogLevel="ERROR" logDirectory="${install.dir}/logs" messageFileName="p2pd_messages.log"/>
-
 <application autoStart="true" id="p2pd" location="${install.dir}/webapps/p2pd" name="p2pd" type="war">
-    <classloader apiTypeVisibility="spec, ibm-api, third-party" commonLibraryRef="bi-library"/>
+<classloader apiTypeVisibility="spec, ibm-api, third-party" commonLibraryRef="bi-library"/>
 </application>
-
-<!-- samesite removed — not supported in this Liberty version -->
 <httpEndpoint id="defaultHttpEndpoint" httpPort="9300" host="*" protocolVersion="http/1.1">
-    <httpOptions CookiesConfigureNoCache="false" AutoDecompression="false" removeServerHeader="true" persistTimeout="${persist.timeout}"/>
-    <headers id="nosniff" setIfMissing="X-Content-Type-Options:nosniff"/>
-    <headers id="noindex" setIfMissing="X-Robots-Tag: noindex"/>
+<httpOptions CookiesConfigureNoCache="false" AutoDecompression="false" removeServerHeader="true" persistTimeout="${persist.timeout}"/>
+<headers id="nosniff" setIfMissing="X-Content-Type-Options:nosniff"/>
+<headers id="noindex" setIfMissing="X-Robots-Tag: noindex"/>
 </httpEndpoint>
-
 <config updateTrigger="mbean"/>
 <applicationMonitor dropins="${install.dir}/wlpdropins" updateTrigger="mbean" pollingRate="10s"/>
-<webContainer skipMetaInfResourcesProcessing="true" deferServletLoad="false" com.ibm.ws.webcontainer.servewelcomefileFromextendeddocumentroot="true" invokeFilterInitAtStartup="false" disableXPoweredBy="true" displaytextwhennoerrorpagedefined="error, see logs"/>
+<webContainer skipMetaInfResourcesProcessing="true" deferServletLoad="false" com.ibm.ws.webcontainer.servewelcomefilefromextendeddocumentroot="true" invokeFilterInitAtStartup="false" disableXPoweredBy="true" displaytextwhennoerrorpagedefined="error, see logs"/>
 <executor coreThreads="100" maxThreads="1500"/>
 <include location="${install.dir}/configuration/bi-services.xml"/>
-
-<!-- Use jar protocol instead of wsjar for 3rd party lib compatibility -->
 <classloading useJarUrls="true"/>
-
 <httpEndpoint id="MutualAuthSSLHttpEndpoint" sslOptionsRef="MutualAuthSSL" httpsPort="4300" httpPort="-1" host="*" protocolVersion="http/1.1">
-    <httpOptions CookiesConfigureNoCache="false" AutoDecompression="false" keepAliveEnabled="false"/>
-    <sslOptions sslRef="MutualAuthSSL"/>
+<httpOptions CookiesConfigureNoCache="false" AutoDecompression="false" keepAliveEnabled="false"/>
+<sslOptions sslRef="MutualAuthSSL"/>
 </httpEndpoint>
-
 <ssl id="MutualAuthSSL" keyStoreRef="CAMEncKeyStore" serverKeyAlias="encryption" enabledCiphers="SSL_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 SSL_ECDHE_RSA_WITH_AES_256_GCM_SHA384 SSL_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 SSL_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384 TLS_AES_128_GCM_SHA256 TLS_CHACHA20_POLY1305_SHA256" sslProtocol="TLSv1.2" clientAuthentication="true"/>
 <keyStore id="CAMEncKeyStore" password="{aes}AHUvwhwOajo+ZBM5hsHPAo+fBorXmZa0ZOKzxmtIB2DwPZRQ8WRC5z9MklUnyxk9Eg==" location="D:/Cognos/analytics12_0_4/configuration/certs/CAMKeystore.jks" pollingRate="60s" updateTrigger="polled"/>
-
 </server>
