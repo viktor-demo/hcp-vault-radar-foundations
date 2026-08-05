@@ -444,7 +444,11 @@ let currentView = null, autoTimer = null;
 function showViz(key, byAI=false) {
   const view = VIEWS[key];
   if (!view) return;
-  // Allow re-render if triggered by AI (re-attaches widgets cleanly)
+  // Don't re-render if already showing this view — prevents blank flash
+  if (key === currentView) {
+    document.getElementById('panel-spin').classList.remove('on');
+    return;
+  }
   currentView = key;
 
   document.getElementById('ctx-icon').textContent = view.icon;
@@ -588,7 +592,9 @@ async function send() {
   document.getElementById('agent-status').textContent = '⋯ думам…';
 
   addMsg('user', txt.replace(/&/g,'&amp;').replace(/</g,'&lt;'));
-  routeReply(txt);   // pre-route on question text
+  // NOTE: intentionally NOT pre-routing on the question text.
+  // Routing on raw question causes double-switches and wrong-view flicker.
+  // We rely solely on the agent reply which contains dashboard_hint.
 
   const typingMsg = addMsg('agent',
     '<div class="typing-dots"><span></span><span></span><span></span></div>');
